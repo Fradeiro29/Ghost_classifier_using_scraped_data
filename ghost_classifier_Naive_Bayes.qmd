@@ -1,0 +1,350 @@
+---
+title: "Clasificador_bayes"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(tidymodels)
+library(e1071)
+library(dplyr)
+library(naivebayes)
+library(Metrics)
+library(caret)
+library(robotstxt)
+library(rvest)
+library(dplyr)
+library(stringr)
+library(tidytext)
+library(textdata)
+library(knitr)
+library(bnlearn)
+library(ggplot2)
+
+```
+
+# Datos completos
+
+```{r}
+data = read_csv("df_haunting.csv")
+data = data[sample(nrow(data), 1000, replace = FALSE), ]
+data
+```
+
+# Análisis de texto
+
+```{r}
+
+
+conteo_NA = sapply(data_haunting, function(x) sum(is.na(x)))
+conteo_NA
+
+data = data |>
+  filter(!is.na(title) & !is.na(location) & !is.na(type) & !is.na(comments))
+
+```
+
+```{r}
+palabras= data |>
+  unnest_tokens(output = word, input = comments)
+
+tipos_unicos <- unique(palabras$type)
+
+tipo_grupo1 <- tipos_unicos[1:7]
+tipo_grupo2 <- tipos_unicos[8:14]
+tipo_grupo3 <- tipos_unicos[15:length(tipos_unicos)]  # Si tienes más de 14
+
+palabras_grupo1 <- palabras %>% filter(type %in% tipo_grupo1)
+palabras_grupo2 <- palabras %>% filter(type %in% tipo_grupo2)
+palabras_grupo3 <- palabras %>% filter(type %in% tipo_grupo3) 
+
+# Gráfico para el primer grupo
+palabras_grupo1 |>
+  anti_join(stop_words) |>
+  count(type, word, sort = TRUE) |>
+  group_by(type) |>
+  slice_head(n = 5) |>
+  ggplot(aes(y = reorder_within(word, n, type), x = n, fill = type)) + 
+    geom_col(show.legend = FALSE) +
+    facet_wrap(~type, scales = "free") +
+    scale_y_reordered() +
+    labs(y = NULL, title = "Grupo 1: Palabras más frecuentes por tipo de evento")
+
+```
+
+```{r}
+# Gráfico para el segundo grupo
+palabras_grupo2 |>
+  anti_join(stop_words) |>
+  count(type, word, sort = TRUE) |>
+  group_by(type) |>
+  slice_head(n = 5) |>
+  ggplot(aes(y = reorder_within(word, n, type), x = n, fill = type)) + 
+    geom_col(show.legend = FALSE) +
+    facet_wrap(~type, scales = "free") +
+    scale_y_reordered() +
+    labs(y = NULL, title = "Grupo 2: Palabras más frecuentes por tipo de evento")
+```
+
+```{r}
+# Gráfico para el tercer grupo
+palabras_grupo3 |>
+  anti_join(stop_words) |>
+  count(type, word, sort = TRUE) |>
+  group_by(type) |>
+  slice_head(n = 5) |>
+  ggplot(aes(y = reorder_within(word, n, type), x = n, fill = type)) + 
+    geom_col(show.legend = FALSE) +
+    facet_wrap(~type, scales = "free") +
+    scale_y_reordered() +
+    labs(y = NULL, title = "Grupo 3: Palabras más frecuentes por tipo de evento")
+```
+
+## Análisis de sentimientos
+
+```{r sentimientos}
+# Cargar las librerías necesarias
+library(dplyr)
+library(tidytext)
+library(tidyr)
+
+# Cargar el lexicon AFINN
+sentiments <- get_sentiments("afinn")
+
+# Suponiendo que tu base de datos se llama 'df'
+# Realizar el análisis de sentimientos
+sentiment_analysis <- data %>%
+  # Tokenizar los comentarios
+  unnest_tokens(word, comments) %>%
+  # Unir con el lexicon de sentimientos
+  inner_join(sentiments) %>%
+  # Agrupar por tipo y calcular el sentimiento promedio
+  group_by(type) %>%
+  summarise(
+    sentiment_score = mean(value),
+    word_count = n()
+  ) %>%
+  # Ordenar por puntuación de sentimiento
+  arrange(desc(sentiment_score))
+
+# Visualizar los resultados
+print(sentiment_analysis)
+
+# Opcional: Visualización con ggplot2
+library(ggplot2)
+
+ggplot(sentiment_analysis, aes(x = reorder(type, sentiment_score), y = sentiment_score, fill = sentiment_score > 0)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Tipo", y = "Puntuación de Sentimiento", title = "Análisis de Sentimientos por Tipo") +
+  theme_minimal() +
+  scale_fill_manual(values = c("TRUE" = "blue", "FALSE" = "red"), guide = FALSE)
+
+```
+
+# Titulos unicos
+
+```{r}
+make_column_unique = function(df, column_name) {
+  # Get the column as a vector
+  col = df[[column_name]]
+  
+  # Make the values unique
+  unique_col = make.unique(as.character(col), sep = "")
+  
+  # Update the column in the dataframe
+  df[[column_name]] = unique_col
+  
+  return(df)
+}
+
+# Usage:
+data_haunting = make_column_unique(data, "title")
+```
+
+# Sparse Matrix
+
+```{r}
+# Cargar las librerías necesarias
+library(tidyverse)
+library(tidytext)
+library(Matrix) 
+library(stopwords)
+
+# unnest tokens
+haunting_tokens <- data_haunting %>%
+  unnest_tokens(word, comments)  
+
+# stopwords
+stopwords_en <- stopwords::stopwords(language = "en", source = "snowball")  # 
+
+haunting_tokens_clean <- haunting_tokens %>%
+  filter(!word %in% stopwords_en)  
+
+# frecuencia
+haunting_word_counts <- haunting_tokens_clean %>%
+  count(title, word) 
+
+# matriz
+sparse_matrix <- haunting_word_counts %>%
+  cast_sparse(title, word, n)
+print(sparse_matrix)
+```
+
+# Correr desde aquí
+
+```{r}
+# convertir matriz en un df
+sparse_matrix_df <- as.data.frame(as.matrix(sparse_matrix))
+#sparse_matrix_df$types = 
+#sparse_matrix_df$type <- rownames(sparse_matrix)
+sparse_matrix_df$manifestation_type = data_haunting$type
+
+# training y test split
+set.seed(1235)
+haunting_split <- initial_split(sparse_matrix_df, prop = 0.7)
+haunting_train <- training(haunting_split)
+haunting_test <- testing(haunting_split)
+sparse_matrix_df
+```
+
+## clasificador con e1071
+
+```{r}
+library(e1071)
+haunting_cl = .(manifestation_type ~ ., data = haunting_train)
+y_pred = predict(haunting_cl, newdata = haunting_test)
+y_pred
+```
+
+```{r}
+accuracy <- mean(y_pred == haunting_test$type)
+accuracy
+```
+
+## clasificador con Naivebayes
+
+```{r}
+nb_model <- naive_bayes(manifestation_type ~ ., data = haunting_train)
+predictions <- predict(nb_model, newdata = haunting_test)
+predictions
+```
+
+```{r}
+accuracy(haunting_test$manifestation_type, predictions)
+```
+
+## clasificador con 2 cat
+
+```{r}
+# convertir matriz en un df
+sparse_matrix_df <- as.data.frame(as.matrix(sparse_matrix))
+sparse_matrix_df$manifestation_type = data_haunting$type
+
+sparse_matrix_df = sparse_matrix_df %>% 
+  mutate(manifestation_type = case_when(manifestation_type != "Haunting Manifestation"  ~ "Other",
+                                        manifestation_type == "Haunting Manifestation"  ~ "Haunting Manifestation"))
+
+
+# training y test split
+set.seed(1235)
+haunting_split <- initial_split(sparse_matrix_df, prop = 0.8)
+haunting_train <- training(haunting_split)
+haunting_test <- testing(haunting_split)
+sparse_matrix_df
+```
+
+### paquete naivebayes
+
+```{r}
+nb_model2 <- naive_bayes(manifestation_type ~ ., data = haunting_train)
+```
+
+```{r}
+predictions2 <- predict(nb_model2, newdata =  haunting_test)
+```
+
+```{r}
+accuracy(haunting_test$manifestation_type, predictions2)
+```
+
+### paquete e1071
+
+```{r}
+haunting_cl = naiveBayes(manifestation_type ~ ., data = haunting_train)
+y_pred = predict(haunting_cl, newdata = haunting_test)
+y_pred
+```
+
+```{r}
+accuracy <- mean(y_pred == haunting_test$type)
+accuracy
+```
+
+## Poisson
+
+```{r}
+
+nb_model_poisson = naive_bayes(manifestation_type ~ ., data = haunting_train, usepoisson = TRUE)
+predictions_poisson = predict(nb_model_poisson, newdata =  haunting_test)
+accuracy(haunting_test$manifestation_type, predictions_poisson)
+
+```
+
+## Laplace
+
+```{r}
+
+#valor puntual de laplace
+nb_model_poisson_laplace = naive_bayes(manifestation_type ~ ., data = haunting_train, usepoisson = TRUE, laplace = 2.6)
+predictions_poisson_laplace = predict(nb_model_poisson_laplace, newdata =  haunting_test)
+accuracy(haunting_test$manifestation_type, predictions_poisson_laplace)
+```
+
+```{r}
+
+# Custom Model for naive_bayes with usepoisson = TRUE
+modelo_naive_bayes <- list(
+  type = "Classification",
+  library = "naivebayes",
+  loop = NULL,
+  parameters = data.frame(
+    parameter = "laplace",
+    class = "numeric",
+    label = "Laplace Smoothing"
+  ),
+  grid = function(x, y, len = NULL, search = "grid") {
+    data.frame(laplace = seq(0, 1, length = len))
+  },
+  fit = function(x, y, wts, param, lev, last, classProbs, ...) {
+    naive_bayes(x, y, laplace = param$laplace, usepoisson = TRUE, ...)
+  },
+  predict = function(modelFit, newdata, submodels = NULL) {
+    predict(modelFit, newdata)
+  },
+  prob = function(modelFit, newdata, submodels = NULL) {
+    predict(modelFit, newdata, type = "prob")
+  },
+  tags = c("Naive Bayes"),
+  sort = function(x) x,
+  levels = function(x) x$levels
+)
+
+# Define Control and Grid for Cross-Validation
+control <- trainControl(method = "cv", number = 5)  # 10-fold CV
+grid <- expand.grid(laplace = seq(0, 5, length.out = 6))  # Tuning grid for laplace
+
+# Train the Naive Bayes Model with usepoisson = TRUE
+modelo <- train(
+  manifestation_type ~ ., 
+  data = haunting_train, 
+  method = modelo_naive_bayes,
+  trControl = control, 
+  tuneGrid = grid
+)
+
+print(modelo)
+
+```

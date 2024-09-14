@@ -1,0 +1,108 @@
+---
+title: "Situación problema: Casas embrujadas"
+format: html
+editor: visual
+---
+
+```{r}
+library(robotstxt)
+library(rvest)
+library(dplyr)
+library(stringr)
+
+```
+
+# Se puede scrapear?
+
+```{r}
+paths_allowed("https://www.paranormaldatabase.com/hotspots/brighton.php")
+```
+
+# Scrapeo
+
+```{r}
+
+all_titles = character(0)
+all_locations = character(0)
+all_types = character(0)
+all_comments = character(0)
+
+report_links = read_html("https://www.paranormaldatabase.com/reports/reports.htm") %>%
+  html_nodes("a") %>%
+  html_attr("href") %>%
+  .[grepl("\\.php$", .)]
+
+page_to_read = "https://www.paranormaldatabase.com"
+
+for (p in report_links[-1]) {
+  
+  page_url = paste0(page_to_read, p)
+  
+  max_page_elements = read_html(page_url) %>% 
+    html_nodes("h4") %>% 
+    html_text() %>% 
+    tail(1)
+  max_page_elements = sub(".*of\\s+", "", max_page_elements)
+  
+  base_url = paste0(page_url, "?pageNum_paradata=0&totalRows_paradata=", max_page_elements)
+  total_items = as.numeric(max_page_elements)
+  items_per_page = 25
+  total_pages = floor(total_items / items_per_page)
+  
+  for (page_num in 0:total_pages) {
+    
+    url = str_replace(string = base_url, pattern = "pageNum_paradata=0", replacement = paste0("pageNum_paradata=", page_num))
+    page = read_html(url)
+    
+    titles = page %>%
+      html_nodes("h4 .w3-border-bottom") %>%
+      html_text()
+  
+    locations = page %>%
+      html_nodes("span.w3-border-bottom:contains('Location:')") %>%
+      html_element(xpath = "following-sibling::text()[1]") %>%
+      html_text() %>%
+      trimws()
+    
+    type = page %>%
+      html_nodes("span.w3-border-bottom:contains('Type:')") %>%
+      html_element(xpath = "following-sibling::text()[1]") %>%
+      html_text() %>%
+      trimws()
+    
+    comments = page %>%
+      html_nodes("span.w3-border-bottom:contains('Further Comments:')") %>%
+      html_element(xpath = "following-sibling::text()[1]") %>%
+      html_text() %>%
+      trimws()
+    
+    
+    all_titles = c(all_titles, titles)
+    all_locations = c(all_locations, locations)
+    all_types = c(all_types, type)
+    all_comments = c(all_comments, comments)
+    
+  }
+  
+}
+
+```
+
+```{r}
+df_haunting = tibble(
+  title = all_titles,
+  location = all_locations,
+  type = all_types,
+  comments = all_comments
+)
+df_haunting
+```
+
+```{r}
+df_haunting_final = df_haunting[-3513, ]
+df_haunting_final
+```
+
+```{r}
+write.csv(df_haunting_final, "df_haunting.csv", row.names = FALSE)
+```
